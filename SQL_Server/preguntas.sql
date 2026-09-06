@@ -1,0 +1,190 @@
+
+USE SuperstoreDB;
+GO
+
+/* ############################################################################
+   PREGUNTA 1: Cuantos registros hay y que periodo cubren?
+   ############################################################################ */
+SELECT
+    COUNT(*)                                            AS lineas_de_venta,
+    MIN(fecha_pedido)                                   AS desde,
+    MAX(fecha_pedido)                                   AS hasta,
+    DATEDIFF(DAY, MIN(fecha_pedido), MAX(fecha_pedido)) AS dias,
+    YEAR(MIN(fecha_pedido))                             AS año_inicial,
+    YEAR(MAX(fecha_pedido))                             AS año_final
+FROM ventas;
+GO
+
+
+/* ############################################################################
+   PREGUNTA 2: Cuanto vendio y cuanto gano la empresa?
+   ############################################################################ */
+SELECT 'Ventas totales'  AS indicador, CAST(SUM(ventas)      AS DECIMAL(14,2)) AS valor FROM ventas
+UNION ALL
+SELECT 'Utilidad total',              CAST(SUM(utilidad)     AS DECIMAL(14,2)) FROM ventas
+UNION ALL
+SELECT 'Costo de envio total',        CAST(SUM(costo_envio)  AS DECIMAL(14,2)) FROM ventas
+UNION ALL
+SELECT 'Unidades vendidas',           CAST(SUM(cantidad)     AS DECIMAL(14,2)) FROM ventas
+UNION ALL
+SELECT 'Margen % sobre ventas',       CAST(SUM(utilidad) * 100.0
+                                         / SUM(ventas)       AS DECIMAL(14,2)) FROM ventas
+UNION ALL
+SELECT 'Venta promedio por linea',    CAST(AVG(CAST(ventas AS DECIMAL(12,2)))
+                                                             AS DECIMAL(14,2)) FROM ventas;
+GO
+
+
+/* ############################################################################
+   PREGUNTA 3: Como evolucionaron las ventas ano a ano?
+   ############################################################################ */
+SELECT
+    YEAR(fecha_pedido)                                  AS año,
+    COUNT(*)                                            AS lineas,
+    SUM(ventas)                                         AS ventas,
+    ROUND(SUM(utilidad), 2)                             AS utilidad,
+    ROUND(SUM(utilidad) * 100.0 / SUM(ventas), 2)       AS margen_pct
+FROM ventas
+GROUP BY YEAR(fecha_pedido)
+ORDER BY año;
+GO
+
+
+/* ############################################################################
+   PREGUNTA 4: Que categorias generan mas utilidad?
+   ############################################################################ */
+SELECT
+    s.categoria,
+    COUNT(*)                                            AS lineas,
+    SUM(v.ventas)                                       AS ventas,
+    ROUND(SUM(v.utilidad), 2)                           AS utilidad,
+    ROUND(SUM(v.utilidad) * 100.0 / SUM(v.ventas), 2)   AS margen_pct
+FROM ventas AS v
+INNER JOIN tb_subcategoria AS s
+        ON s.subcategoria = v.subcategoria
+GROUP BY s.categoria
+ORDER BY utilidad DESC;
+GO
+
+
+/* ############################################################################
+   PREGUNTA 5: Que subcategorias pierden dinero?
+   ############################################################################ */
+SELECT
+    s.categoria,
+    v.subcategoria,
+    COUNT(*)                                            AS lineas,
+    SUM(v.ventas)                                       AS ventas,
+    ROUND(SUM(v.utilidad), 2)                           AS utilidad,
+    ROUND(SUM(v.utilidad) * 100.0 / SUM(v.ventas), 2)   AS margen_pct
+FROM ventas AS v
+INNER JOIN tb_subcategoria AS s
+        ON s.subcategoria = v.subcategoria
+GROUP BY s.categoria, v.subcategoria
+HAVING SUM(v.utilidad) < 0;
+
+/* ############################################################################
+   PREGUNTA 6: Cuales son los 10 paises con mas ventas?
+   ############################################################################ */
+SELECT TOP 10
+    RANK() OVER (ORDER BY SUM(v.ventas) DESC)           AS puesto,
+    v.pais,
+    p.mercado,
+    COUNT(*)                                            AS lineas,
+    SUM(v.ventas)                                       AS ventas,
+    ROUND(SUM(v.utilidad), 2)                           AS utilidad,
+    ROUND(SUM(v.utilidad) * 100.0 / SUM(v.ventas), 2)   AS margen_pct
+FROM ventas AS v
+INNER JOIN tb_pais AS p
+        ON p.pais = v.pais
+GROUP BY v.pais, p.mercado
+ORDER BY ventas DESC;
+GO
+
+
+/* ############################################################################
+   PREGUNTA 7: Que segmento de cliente es mas rentable?
+   ############################################################################ */
+SELECT
+    segmento,
+    COUNT(*)                                            AS lineas,
+    SUM(ventas)                                         AS ventas,
+    ROUND(SUM(utilidad), 2)                             AS utilidad,
+    ROUND(AVG(CAST(ventas AS DECIMAL(12,2))), 2)        AS venta_promedio,
+    ROUND(SUM(utilidad) * 100.0 / SUM(ventas), 2)       AS margen_pct,
+    CASE
+        WHEN SUM(utilidad) * 100.0 / SUM(ventas) > 11.61 THEN 'Sobre el promedio'
+        ELSE 'Bajo el promedio'
+    END                                                 AS comparacion
+FROM ventas
+GROUP BY segmento
+ORDER BY ventas DESC;
+GO
+
+
+/* ############################################################################
+   PREGUNTA 8: Cuanto demora la entrega segun la prioridad del pedido?
+   ############################################################################ */
+SELECT
+    prioridad,
+    COUNT(*)                                            AS lineas,
+    ROUND(AVG(CAST(dias_envio AS DECIMAL(6,2))), 2)     AS dias_promedio,
+    MIN(dias_envio)                                     AS dias_minimo,
+    MAX(dias_envio)                                     AS dias_maximo,
+    ROUND(SUM(utilidad) * 100.0 / SUM(ventas), 2)       AS margen_pct,
+    CASE
+        WHEN AVG(CAST(dias_envio AS DECIMAL(6,2))) <= 2 THEN 'Entrega rapida'
+        WHEN AVG(CAST(dias_envio AS DECIMAL(6,2))) <= 5 THEN 'Entrega normal'
+        ELSE 'Entrega lenta'
+    END                                                 AS tipo_entrega
+FROM ventas
+GROUP BY prioridad
+ORDER BY dias_promedio;
+GO
+
+
+/* ############################################################################
+   PREGUNTA 9: Que productos nunca generaron ganancia?
+   ############################################################################ */
+
+SELECT
+    -- LEFT recorta los nombres largos para que la tabla se lea mejor
+    CASE
+        WHEN LEN(producto) > 45 THEN LEFT(producto, 42) + '...'
+        ELSE producto
+    END                                                 AS producto,
+    COUNT(*)                                            AS veces_vendido,
+    SUM(ventas)                                         AS ventas,
+    ROUND(SUM(utilidad), 2)                             AS utilidad
+FROM ventas
+WHERE producto NOT IN (
+        SELECT producto
+        FROM ventas
+        WHERE utilidad >= 0
+      )
+GROUP BY producto
+ORDER BY utilidad ASC;
+GO
+
+
+/* ############################################################################
+   PREGUNTA 10: Quienes son los 10 clientes que mas compran?
+   ############################################################################ */
+SELECT TOP 10
+    cliente,
+    COUNT(*)                                            AS compras,
+    SUM(ventas)                                         AS ventas,
+    ROUND(SUM(utilidad), 2)                             AS utilidad,
+
+    (SELECT ROUND(AVG(total), 2)
+     FROM (SELECT SUM(ventas) AS total FROM ventas GROUP BY cliente) AS t)
+                                                        AS promedio_por_cliente,
+
+    CASE
+        WHEN SUM(utilidad) < 0 THEN 'Cliente NO rentable'
+        ELSE 'Cliente rentable'
+    END                                                 AS situacion
+FROM ventas
+GROUP BY cliente
+ORDER BY ventas DESC;
+GO
